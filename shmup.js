@@ -24,6 +24,11 @@ var keys = {
   },
 };
 
+var points = 0;
+var startTime = Date.now();
+var lives = 3;
+var player;
+
 class Sprite {
   constructor({name, position, velocity, width = 8, height = 8}) {
     this.name = name;
@@ -42,10 +47,12 @@ alive = 0;
 collision = false;
 }
 
-var player;
-var streaks = 0;
+generateStreak(14, 143);
+generateStreak(38, 151);
+generateStreak(71, 69);
+generateStreak(109, 81);
+generateStreak(153, 34);
 
-generateStreaks();
 generatePlayer();
 generateEnemy();
 generateAsteroid();
@@ -58,9 +65,6 @@ function draw() {
   stars();
   planet(168, 20, true);
   planet(30, 100, false);
-  if (streaks < 5) {
-    generateStreaks();
-  }
 }
 
 function update() {
@@ -72,19 +76,24 @@ function update() {
     return sprite.name === 'player';
   });
 
+  if (!player && lives > 0) {
+    generatePlayer();
+    lives--;
+  }
+
   // Sprite actions
   for (var i = 0; i < sprites.length;i++) {
     var sprite = sprites[i];
     if (sprite.name === 'streak') {
       ctx.fillStyle = 'white';
-      showSpeed(sprite);
+      streakSkin(sprite);
       sprite.position.y += sprite.velocity.y;
     } else if (sprite.name === 'player') {
       ctx.fillStyle = 'blue';
       playerSkin(sprite);
       sprite.position.x += sprite.velocity.x;
       playerMovement(sprite);
-      bulletFn();
+      engage();
     } else if (sprite.name === 'bullet') {
       ctx.fillStyle = 'yellow';
       bulletSkin(sprite);
@@ -97,12 +106,19 @@ function update() {
       ctx.fillStyle = 'green';
       enemySkin(sprite);
       sprite.position.y += sprite.velocity.y;
+      fire(sprite);
+    } else if (sprite.name === 'fire') {
+      ctx.fillStyle = 'red';
+      fireSkin(sprite);
+      sprite.position.y += sprite.velocity.y;
     }
   }
 
+  revolvingStreaks();
   collisionDetection();
   collisionExplosion();
   garbageCollection();
+  hud();
 }
 
 function loop() {
@@ -119,13 +135,13 @@ function generatePlayer() {
   sprites.push(new Sprite({
     name: 'player',
     position: {
-      x: 100,
-      y: 100
+      x: canvas.width / 2 + 4,
+      y: canvas.height - 28
     },
     velocity: {
       x: 0,
       y: 0
-    },
+    }
   }));
 }
 
@@ -150,7 +166,7 @@ function generateAsteroid() {
     name: 'asteroid',
     position: {
       x: rng(184),
-      y: -8
+      y: 0
     },
     velocity: {
       x: 0,
@@ -164,12 +180,28 @@ function generateEnemy() {
     name: 'enemy',
     position: {
       x: rng(184),
-      y: -8
+      y: 0
     },
     velocity: {
       x: 0,
       y: rng(1)
     }
+  }));
+}
+
+function generateStreak(x, y) {
+  sprites.push(new Sprite({
+    name: 'streak',
+    position: {
+      x: x,
+      y: y
+    },
+    velocity: {
+      x: 0,
+      y: 0.7
+    },
+    width: 1,
+    height: 1
   }));
 }
 
@@ -182,25 +214,19 @@ function garbageCollection() {
       }
     } else if (sprites[i].name === 'bullet') {
       sprites[i].alive++;
-      if (sprites[i].collision || sprites[i].position.y + 0 <= 0) {
+      if (sprites[i].collision || sprites[i].position.y + 8 <= 0) {
         // console.log('bullet collected');
         delete sprites[i];
       }
     } else if (sprites[i].name === 'asteroid') {
-      if (sprites[i].collision || sprites[i].position.y + 0 >= canvas.height) {
+      if (sprites[i].collision || sprites[i].position.y + 8 >= canvas.height) {
         // console.log('asteroid collected');
         delete sprites[i];
       }
     } else if (sprites[i].name === 'enemy') {
-      if (sprites[i].collision || sprites[i].position.y + 0 >= canvas.height) {
+      if (sprites[i].collision || sprites[i].position.y + 8 >= canvas.height) {
         // console.log('enemy collected');
         delete sprites[i];
-      }
-    } else if (sprites[i].name === 'streak') {
-      if (sprites[i].position.y + 0 >= canvas.height) {
-        // console.log('streak collected');
-        delete sprites[i];
-        streaks--;
       }
     }
   }
@@ -208,6 +234,79 @@ function garbageCollection() {
   sprites = sprites.filter(function(el) {
     return el !== undefined;
   });
+}
+
+function collisionDetection() {
+  for (var i = 0; i < sprites.length; i++) {
+    if (sprites[i].name === 'streak') {
+      continue;
+    }
+
+    for (var j = i + 1; j < sprites.length; j++) {
+      if (sprites[j].name === 'streak') {
+        continue;
+      }
+
+      var spriteA = sprites[i];
+      var spriteB = sprites[j];
+
+      if (spriteA.position.x + spriteA.width >= spriteB.position.x &&
+          spriteA.position.x <= spriteB.position.x + spriteB.width &&
+          spriteA.position.y + spriteA.width >= spriteB.position.y &&
+          spriteA.position.y <= spriteB.position.y + spriteB.width) {
+        console.log(spriteA.name, 'and', spriteB.name, 'have collided');
+        spriteA.collision = true;
+        spriteB.collision = true;
+      }
+    }
+  }
+}
+
+function collisionExplosion() {
+  for (var i = 0; i < sprites.length; i++) {
+    var sprite = sprites[i];
+    if ((sprite.name !== 'bullet' || sprite.name !== 'fire') && sprite.collision) {
+      pointAllocation(sprite);
+      explosionSkin(sprite);
+    }
+  }
+}
+
+function playerMovement(sprite) {
+  player.velocity.x = 0;
+  if (keys.left.pressed &&
+      sprite.lastKey === 'left' &&
+      sprite.position.x + -1 >= 0) {
+    sprite.velocity.x = -2;
+  } else if (keys.right.pressed &&
+            sprite.lastKey === 'right' &&
+            sprite.position.x + sprite.width + 2 <= canvas.width) {
+    sprite.velocity.x = 2;
+  }
+}
+
+function engage() {
+  // Player Bullet
+  if (player && keys.space.pressed && !player.overheated) {
+    generateBullet();
+    player.overheated = true;
+    setTimeout(function() {
+      if (player) {
+        player.overheated = false;
+      }
+    }, 500);
+    player.weaponL = !player.weaponL;
+  }
+}
+
+function revolvingStreaks() {
+  for (var i = 0; i < sprites.length; i++) {
+    if (sprites[i].name === 'streak') {
+      if (sprites[i].position.y + 8 >= canvas.height) {
+        sprites[i].position.y = 8;
+      }
+    }
+  }
 }
 
 // ------------------------------------------------------------------
@@ -272,108 +371,9 @@ function explosionSkin(sprite) {
   ctx.fillRect(sprite.position.x + 7, sprite.position.y + 7, 1, 1);
 }
 
-// ------------------------------------------------------------------
-
-window.addEventListener('keydown', function() {
-  switch (event.key) {
-    case 'ArrowLeft':
-      keys.left.pressed = true;
-      player.lastKey = 'left';
-      break;
-    case 'ArrowRight':
-      keys.right.pressed = true;
-      player.lastKey = 'right';
-      break;
-    case ' ':
-      keys.space.pressed = true;
-      break;
-  }
-});
-
-window.addEventListener('keyup', function() {
-  switch (event.key) {
-    case 'ArrowLeft':
-      keys.left.pressed = false;
-      break;
-    case 'ArrowRight':
-      keys.right.pressed = false;
-      break;
-    case ' ':
-      keys.space.pressed = false;
-      break;
-  }
-});
-
-loop();
-
-/*
-Collision Detection
-
-Have it set so it can check each element in the array against all other elements
-Nested loop maybe? Time O(n^2)
-Two loops and a map? Time O(n)
-*/
-
-function collisionDetection() {
-  for (var i = 0; i < sprites.length; i++) {
-    if (sprites[i].name === 'streak') {
-      continue;
-    }
-
-    for (var j = i + 1; j < sprites.length; j++) {
-      if (sprites[j].name === 'streak') {
-        continue;
-      }
-
-      var spriteA = sprites[i];
-      var spriteB = sprites[j];
-
-      if (spriteA.position.x + spriteA.width >= spriteB.position.x &&
-          spriteA.position.x <= spriteB.position.x + spriteB.width &&
-          spriteA.position.y + spriteA.width >= spriteB.position.y &&
-          spriteA.position.y <= spriteB.position.y + spriteB.width) {
-        console.log(spriteA.name, 'and', spriteB.name, 'have collided');
-        spriteA.collision = true;
-        spriteB.collision = true;
-      }
-    }
-  }
-}
-
-function collisionExplosion() {
-  for (var i = 0; i < sprites.length; i++) {
-    var sprite = sprites[i];
-    if (sprite.name !== 'bullet' && sprite.collision) {
-      explosionSkin(sprite);
-    }
-  }
-}
-
-function playerMovement(sprite) {
-  player.velocity.x = 0;
-  if (keys.left.pressed &&
-      sprite.lastKey === 'left' &&
-      sprite.position.x + -1 >= 0) {
-    sprite.velocity.x = -2;
-  } else if (keys.right.pressed &&
-            sprite.lastKey === 'right' &&
-            sprite.position.x + sprite.width + 2 <= canvas.width) {
-    sprite.velocity.x = 2;
-  }
-}
-
-function bulletFn() {
-  // Player Bullet
-  if (keys.space.pressed && !player.overheated) {
-    generateBullet();
-    player.overheated = true;
-    setTimeout(function() {
-      if (player) {
-        player.overheated = false;
-      }
-    }, 500);
-    player.weaponL = !player.weaponL;
-  }
+function streakSkin(sprite) {
+  ctx.fillStyle = 'white';
+  ctx.fillRect(sprite.position.x, sprite.position.y + sprite.velocity.y, 1, sprite.velocity.y);
 }
 
 function planet(x, y, ring) {
@@ -453,23 +453,113 @@ function stars() {
   ctx.fillRect(17, 154, 1, 1);
 }
 
-function showSpeed(sprite) {
-  ctx.fillRect(sprite.position.x, sprite.position.y + sprite.velocity.y, 1, sprite.velocity.y);
+// ------------------------------------------------------------------
+
+window.addEventListener('keydown', function() {
+  switch (event.key) {
+    case 'ArrowLeft':
+      keys.left.pressed = true;
+      player.lastKey = 'left';
+      break;
+    case 'ArrowRight':
+      keys.right.pressed = true;
+      player.lastKey = 'right';
+      break;
+    case ' ':
+      keys.space.pressed = true;
+      break;
+  }
+});
+
+window.addEventListener('keyup', function() {
+  switch (event.key) {
+    case 'ArrowLeft':
+      keys.left.pressed = false;
+      break;
+    case 'ArrowRight':
+      keys.right.pressed = false;
+      break;
+    case ' ':
+      keys.space.pressed = false;
+      break;
+  }
+});
+
+// ------------------------------------------------------------------
+
+function hud() {
+  var elapsedTime = (Date.now() - startTime) / 1000;
+  ctx.fillStyle = 'black';
+  ctx.fillRect(0, 0, canvas.width, 16);
+  ctx.fillRect(0, canvas.height - 16, canvas.width, 16);
+
+  ctx.fillStyle = 'grey';
+  ctx.fillFont = 'bold 8px Arial';
+  ctx.fillText(`Points: ${points}`, 4, 12);
+  ctx.fillText(`Time: ${elapsedTime}`, canvas.width - 68, 12);
+  ctx.fillText("Lives: ", 4, canvas.height - 4);
+
+  ctx.fillStyle = 'blue';
+
+  if (lives) {
+    switch (lives) {
+      case 3:
+        playerSkin({position: {x: 48, y: canvas.height - 12}});
+      case 2:
+        playerSkin({position: {x: 40, y: canvas.height - 12}});
+      case 1:
+        playerSkin({position: {x: 32, y: canvas.height - 12}});
+        break;
+    }
+  }
 }
 
-function generateStreaks() {
-  streaks++;
+function pointAllocation(sprite) {
+  if (sprite.name === 'enemy') {
+    points += 100;
+  } else if (sprite.name === 'asteroid') {
+    points += 50;
+  }
+}
+
+function fire(sprite) {
+  // Enemy Bullet
+  if (sprite.position.x + sprite.width >= player.position.x &&
+      sprite.position.x <= player.position.x + player.width) {
+    console.log(sprite.name, 'has eyes on player');
+
+    if (!sprite.overheated) {
+      generateFire(sprite);
+      sprite.overheated = true;
+      setTimeout(function() {
+        sprite.overheated = false;
+      }, 1000);
+      sprite.weaponL = !sprite.weaponL;
+    }
+  }
+}
+
+function generateFire(sprite) {
   sprites.push(new Sprite({
-    name: 'streak',
+    name: 'fire',
     position: {
-      x: rng(184),
-      y: rng(160) - 8
+      x: sprite.position.x + (sprite.weaponL ? 4 : 3),
+      y: sprite.position.y + 8 + 1
     },
     velocity: {
       x: 0,
-      y: 1
+      y: 2
     },
     width: 1,
     height: 1
   }));
 }
+
+function fireSkin(sprite) {
+  // ctx.fillStyle = 'white';
+  ctx.fillRect(sprite.position.x, sprite.position.y, 1, 2);
+}
+
+// ------------------------------------------------------------------
+
+loop();
